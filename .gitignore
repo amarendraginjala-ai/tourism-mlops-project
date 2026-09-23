@@ -1,0 +1,18 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# MLflow local tracking
+mlruns/
+
+# Local environment
+.venv/
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db

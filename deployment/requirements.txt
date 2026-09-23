@@ -1,0 +1,18 @@
+
+# Streamlit framework for the deployment interface
+streamlit
+
+# Data manipulation and DataFrame creation
+pandas
+
+# Numerical computing required by the machine learning libraries
+numpy
+
+# Machine learning library used by the trained Random Forest model
+scikit-learn
+
+# Library used to load the saved model file
+joblib
+
+# Library used to download the trained model from Hugging Face
+huggingface-hub
