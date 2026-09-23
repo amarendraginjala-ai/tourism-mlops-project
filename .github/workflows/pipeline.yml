@@ -16,7 +16,7 @@ on:
     branches:
       - main
 
-  # Also allow the workflow to be started manually from GitHub
+  # Allow the workflow to be started manually from GitHub
   workflow_dispatch:
 
 
@@ -25,7 +25,6 @@ on:
 # ---------------------------------------------------------
 
 env:
-
   # Hugging Face dataset repository
   HF_DATASET_REPO: Amarendraa/Tourism
 
@@ -41,51 +40,53 @@ jobs:
 
   register-dataset:
 
-    # Use an Ubuntu virtual machine provided by GitHub Actions
     runs-on: ubuntu-latest
 
     steps:
 
-      # Download the project files from the GitHub repository
+      # Download the project repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # Install Python
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-
-      # Install the packages required by the workflow
+      # Install the libraries required by the workflow
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r tourism_project/.github/workflows/requirements.txt
+          pip install -r .github/workflows/requirements.txt
 
-
-      # Register the original tourism dataset on Hugging Face
+      # Upload the original dataset to Hugging Face
       - name: Register dataset on Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
         run: |
+
           python - <<'PY'
+
           import os
           from huggingface_hub import HfApi
 
-          # Create the Hugging Face API client
-          api = HfApi(token=os.environ["HF_TOKEN"])
+          # Create Hugging Face API client
+          api = HfApi(
+              token=os.environ["HF_TOKEN"]
+          )
 
-          # Upload the original tourism dataset to the dataset repository
+          # Upload the original tourism dataset
           api.upload_file(
-              path_or_fileobj="tourism_project/data/tourism.csv",
+              path_or_fileobj="data/tourism.csv",
               path_in_repo="tourism.csv",
               repo_id=os.environ["HF_DATASET_REPO"],
               repo_type="dataset"
           )
 
           print("Original tourism dataset registered successfully.")
+
           PY
 
 
@@ -95,9 +96,7 @@ jobs:
 
   data-prep:
 
-    # Run data preparation after dataset registration
     needs: register-dataset
-
     runs-on: ubuntu-latest
 
     steps:
@@ -106,41 +105,45 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # Install Python
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-
-      # Install required Python packages
+      # Install required libraries
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r tourism_project/.github/workflows/requirements.txt
+          pip install -r .github/workflows/requirements.txt
 
-
-      # Prepare the dataset and upload train/test data to Hugging Face
+      # Prepare and upload the datasets
       - name: Prepare and upload dataset
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
         run: |
+
           python - <<'PY'
+
           import os
           import pandas as pd
+
           from datasets import load_dataset
           from sklearn.model_selection import train_test_split
           from huggingface_hub import HfApi
 
-          # Define the Hugging Face dataset URL
+
+          # -------------------------------------------------
+          # Load the original dataset from Hugging Face
+          # -------------------------------------------------
+
           dataset_url = (
               "https://huggingface.co/datasets/"
               + os.environ["HF_DATASET_REPO"]
               + "/resolve/main/tourism.csv"
           )
 
-          # Load the tourism dataset directly from Hugging Face
           dataset = load_dataset(
               "csv",
               data_files=dataset_url,
@@ -149,30 +152,54 @@ jobs:
 
           df = dataset.to_pandas()
 
-          # Remove unnecessary identifier columns
+
+          # -------------------------------------------------
+          # Remove unnecessary columns
+          # -------------------------------------------------
+
           df = df.drop(
-              columns=["Unnamed: 0", "CustomerID"],
+              columns=[
+                  "Unnamed: 0",
+                  "CustomerID"
+              ],
               errors="ignore"
           )
 
+
+          # -------------------------------------------------
           # Standardize gender values
+          # -------------------------------------------------
+
           df["Gender"] = df["Gender"].replace(
-              {"Fe Male": "Female"}
+              {
+                  "Fe Male": "Female"
+              }
           )
 
+
+          # -------------------------------------------------
           # Encode binary categorical variables
-          df["TypeofContact"] = df["TypeofContact"].map({
-              "Self Enquiry": 0,
-              "Company Invited": 1
-          })
+          # -------------------------------------------------
 
-          df["Gender"] = df["Gender"].map({
-              "Female": 0,
-              "Male": 1
-          })
+          df["TypeofContact"] = df["TypeofContact"].map(
+              {
+                  "Self Enquiry": 0,
+                  "Company Invited": 1
+              }
+          )
 
-          # Create one-hot encoded variables using the same
-          # preprocessing structure used during model development
+          df["Gender"] = df["Gender"].map(
+              {
+                  "Female": 0,
+                  "Male": 1
+              }
+          )
+
+
+          # -------------------------------------------------
+          # One-hot encode categorical variables
+          # -------------------------------------------------
+
           df = pd.get_dummies(
               df,
               columns=[
@@ -185,11 +212,22 @@ jobs:
               dtype=int
           )
 
+
+          # -------------------------------------------------
           # Separate predictors and target
-          X = df.drop(columns=["ProdTaken"])
+          # -------------------------------------------------
+
+          X = df.drop(
+              columns=["ProdTaken"]
+          )
+
           y = df["ProdTaken"]
 
-          # Perform the same stratified 80/20 split used during development
+
+          # -------------------------------------------------
+          # Create stratified train-test split
+          # -------------------------------------------------
+
           X_train, X_test, y_train, y_test = train_test_split(
               X,
               y,
@@ -198,44 +236,60 @@ jobs:
               stratify=y
           )
 
-          # Reconstruct train and test datasets
+
+          # -------------------------------------------------
+          # Create train and test datasets
+          # -------------------------------------------------
+
           train_df = X_train.copy()
           train_df["ProdTaken"] = y_train
 
           test_df = X_test.copy()
           test_df["ProdTaken"] = y_test
 
-          # Save prepared datasets locally in the project
+
+          # -------------------------------------------------
+          # Save prepared datasets locally
+          # -------------------------------------------------
+
           train_df.to_csv(
-              "tourism_project/data/train.csv",
+              "data/train.csv",
               index=False
           )
 
           test_df.to_csv(
-              "tourism_project/data/test.csv",
+              "data/test.csv",
               index=False
           )
 
-          # Upload the prepared datasets to Hugging Face
-          api = HfApi(token=os.environ["HF_TOKEN"])
+
+          # -------------------------------------------------
+          # Upload prepared datasets to Hugging Face
+          # -------------------------------------------------
+
+          api = HfApi(
+              token=os.environ["HF_TOKEN"]
+          )
 
           api.upload_file(
-              path_or_fileobj="tourism_project/data/train.csv",
+              path_or_fileobj="data/train.csv",
               path_in_repo="train.csv",
               repo_id=os.environ["HF_DATASET_REPO"],
               repo_type="dataset"
           )
 
           api.upload_file(
-              path_or_fileobj="tourism_project/data/test.csv",
+              path_or_fileobj="data/test.csv",
               path_in_repo="test.csv",
               repo_id=os.environ["HF_DATASET_REPO"],
               repo_type="dataset"
           )
 
+
           print("Data preparation completed successfully.")
           print(f"Training data shape: {train_df.shape}")
           print(f"Testing data shape: {test_df.shape}")
+
           PY
 
 
@@ -245,9 +299,7 @@ jobs:
 
   model-training:
 
-    # Run model training after data preparation
     needs: data-prep
-
     runs-on: ubuntu-latest
 
     steps:
@@ -256,31 +308,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # Install Python
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-
-      # Install required packages
+      # Install required libraries
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r tourism_project/.github/workflows/requirements.txt
+          pip install -r .github/workflows/requirements.txt
 
-
-      # Train the Random Forest model and upload it to Hugging Face
+      # Train and register the final Random Forest model
       - name: Train and register Random Forest model
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
         run: |
+
           python - <<'PY'
+
           import os
           import pandas as pd
           import joblib
+
+          from huggingface_hub import hf_hub_download
+          from huggingface_hub import HfApi
+
           from sklearn.ensemble import RandomForestClassifier
+
           from sklearn.metrics import (
               accuracy_score,
               precision_score,
@@ -288,26 +345,55 @@ jobs:
               f1_score,
               roc_auc_score
           )
-          from huggingface_hub import HfApi
 
-          # Load the prepared training and testing datasets
+
+          # -------------------------------------------------
+          # Load train and test datasets directly from HF
+          # -------------------------------------------------
+
+          train_path = hf_hub_download(
+              repo_id=os.environ["HF_DATASET_REPO"],
+              filename="train.csv",
+              repo_type="dataset"
+          )
+
+          test_path = hf_hub_download(
+              repo_id=os.environ["HF_DATASET_REPO"],
+              filename="test.csv",
+              repo_type="dataset"
+          )
+
+
           train_df = pd.read_csv(
-              "tourism_project/data/train.csv"
+              train_path
           )
 
           test_df = pd.read_csv(
-              "tourism_project/data/test.csv"
+              test_path
           )
 
-          # Separate predictors and target variable
-          X_train = train_df.drop(columns=["ProdTaken"])
+
+          # -------------------------------------------------
+          # Separate predictors and target
+          # -------------------------------------------------
+
+          X_train = train_df.drop(
+              columns=["ProdTaken"]
+          )
+
           y_train = train_df["ProdTaken"]
 
-          X_test = test_df.drop(columns=["ProdTaken"])
+          X_test = test_df.drop(
+              columns=["ProdTaken"]
+          )
+
           y_test = test_df["ProdTaken"]
 
-          # Define the final Random Forest model using
-          # the selected hyperparameters from model development
+
+          # -------------------------------------------------
+          # Define the final Random Forest model
+          # -------------------------------------------------
+
           model = RandomForestClassifier(
               n_estimators=200,
               max_depth=None,
@@ -317,38 +403,64 @@ jobs:
               class_weight="balanced"
           )
 
+
           # Train the model
-          model.fit(X_train, y_train)
+          model.fit(
+              X_train,
+              y_train
+          )
 
-          # Generate predictions on the test dataset
-          predictions = model.predict(X_test)
 
-          # Generate purchase probabilities
-          probabilities = model.predict_proba(X_test)[:, 1]
+          # -------------------------------------------------
+          # Generate predictions
+          # -------------------------------------------------
 
+          predictions = model.predict(
+              X_test
+          )
+
+          probabilities = model.predict_proba(
+              X_test
+          )[:, 1]
+
+
+          # -------------------------------------------------
           # Calculate evaluation metrics
-          accuracy = accuracy_score(y_test, predictions)
+          # -------------------------------------------------
+
+          accuracy = accuracy_score(
+              y_test,
+              predictions
+          )
+
           precision = precision_score(
               y_test,
               predictions,
               zero_division=0
           )
+
           recall = recall_score(
               y_test,
               predictions,
               zero_division=0
           )
+
           f1 = f1_score(
               y_test,
               predictions,
               zero_division=0
           )
+
           roc_auc = roc_auc_score(
               y_test,
               probabilities
           )
 
-          # Display model evaluation results in GitHub Actions
+
+          # -------------------------------------------------
+          # Display model evaluation results
+          # -------------------------------------------------
+
           print("Random Forest model evaluation:")
           print(f"Accuracy : {accuracy:.4f}")
           print(f"Precision: {precision:.4f}")
@@ -356,16 +468,29 @@ jobs:
           print(f"F1 Score : {f1:.4f}")
           print(f"ROC-AUC  : {roc_auc:.4f}")
 
-          # Save the trained model
+
+          # -------------------------------------------------
+          # Save trained model
+          # -------------------------------------------------
+
           model_path = (
-              "tourism_project/model_building/"
+              "model_building/"
               "random_forest_tourism_model.joblib"
           )
 
-          joblib.dump(model, model_path)
+          joblib.dump(
+              model,
+              model_path
+          )
 
-          # Upload the trained model to Hugging Face Model Hub
-          api = HfApi(token=os.environ["HF_TOKEN"])
+
+          # -------------------------------------------------
+          # Register model on Hugging Face Model Hub
+          # -------------------------------------------------
+
+          api = HfApi(
+              token=os.environ["HF_TOKEN"]
+          )
 
           api.upload_file(
               path_or_fileobj=model_path,
@@ -374,7 +499,11 @@ jobs:
               repo_type="model"
           )
 
-          print("Random Forest model registered successfully.")
+
+          print(
+              "Random Forest model registered successfully."
+          )
+
           PY
 
 
@@ -384,9 +513,7 @@ jobs:
 
   deploy-hosting:
 
-    # Run after successful model training
     needs: model-training
-
     runs-on: ubuntu-latest
 
     steps:
@@ -395,13 +522,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # Validate that the Streamlit deployment files exist
+      # Verify that all deployment files exist
       - name: Validate deployment files
         run: |
-          test -f tourism_project/deployment/app.py
-          test -f tourism_project/deployment/requirements.txt
-          test -f tourism_project/deployment/Dockerfile
+
+          test -f deployment/app.py
+          test -f deployment/requirements.txt
+          test -f deployment/Dockerfile
 
           echo "All deployment files are present."
-          echo "Streamlit deployment is ready for hosting through Streamlit Community Cloud."
+          echo "Streamlit deployment is ready for hosting."
